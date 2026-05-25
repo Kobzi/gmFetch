@@ -3,8 +3,8 @@
 Drop-in `fetch()` replacement for userscripts, powered by `GM_xmlhttpRequest`. Supports cross-origin requests, forbidden headers, cookie injection, proxies, streaming, and upload progress while preserving familiar Fetch API ergonomics.
 
 Available in two variants:
-- **Full** (~3.0 KB min) — closely aligned with Fetch spec, SRI, streaming, cache modes, GM options
-- **Lite** (~1.8 KB min) — minimal footprint, core fetch semantics only
+- **Full** (~3.1 KB min) — closely aligned with Fetch spec, SRI, streaming, cache modes, GM options
+- **Lite** (~1.9 KB min) — minimal footprint, core fetch semantics only
 
 ```ts
 // Full
@@ -378,28 +378,28 @@ npm run build
 Output:
 ```
 dist/
-├── gmFetch.esm.min.js         3.0 KB  (full, ESM)
-├── gmFetch.iife.min.js        ~3.0 KB (full, IIFE)
-├── gmFetch.lite.esm.min.js    1.7 KB  (lite, ESM)
-├── gmFetch.lite.iife.min.js   ~1.8 KB (lite, IIFE)
+├── gmFetch.esm.min.js         3.1 KB  (full, ESM)
+├── gmFetch.iife.min.js        3.1 KB  (full, IIFE)
+├── gmFetch.lite.esm.min.js    1.8 KB  (lite, ESM)
+├── gmFetch.lite.iife.min.js   1.8 KB  (lite, IIFE)
 ├── gmFetch.d.ts               (types, full)
 └── gmFetch.lite.d.ts          (types, lite)
 ```
 
-Estimated sizes (esbuild + terser, minified, no gzip):
+Sizes (esbuild + terser, minified, no gzip):
 
 | Variant | ESM | IIFE |
 |---|---|---|
-| Full | 3.0 KB | ~3.0 KB |
-| Lite | 1.7 KB | ~1.8 KB |
+| Full | 3.1 KB | 3.1 KB |
+| Lite | 1.8 KB | 1.8 KB |
 
 For comparison (IIFE, minified):
 | Library | Size | Notes |
 |---|---|---|
-| **@kobzi/gmfetch lite** | **~1.8 KB** | own terser build, more correct |
+| **@kobzi/gmfetch lite** | **1.8 KB** | own terser build, more correct |
 | @sec-ant/gm-fetch | 1.9 KB | includes vite-plugin-monkey runtime |
 | @trim21/gm-fetch | 2.1 KB | minified by jsdelivr (no own min build) |
-| **@kobzi/gmfetch full** | **~3.0 KB** | own terser build, full GM API surface |
+| **@kobzi/gmfetch full** | **3.1 KB** | own terser build, full GM API surface |
 
 Pipeline: `esbuild` (bundle + minify, target `es2024`) → `terser` (3-pass compress + toplevel mangle).
 

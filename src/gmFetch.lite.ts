@@ -24,16 +24,16 @@ export interface GmFetchLiteInit extends RequestInit {}
 // Alias globals — terser mangles local names but not global property access.
 const TypeErr = TypeError, DOMEx = DOMException;
 const fromEntries = Object.fromEntries;
+const defProp = Object.defineProperty;
 const FETCH_ERR = "Failed to fetch", ABORT_EVT = "abort";
 const RE_FOLD = /\r?\n[\t ]+/g, RE_NEWLINE = /\r?\n/;
 
 /** Stamp read-only Response properties that the constructor doesn't allow setting. */
 function stamp(response: Response, url: string, finalUrl: string, headers: Headers): Response {
-  const dp = Object.defineProperty;
-  dp(response, "url", { value: finalUrl, configurable: true });
-  dp(response, "type", { value: "basic", configurable: true });
-  if (url !== finalUrl) dp(response, "redirected", { value: true, configurable: true });
-  if (headers.has("set-cookie")) dp(response, "headers", { value: headers, configurable: true });
+  defProp(response, "url", { value: finalUrl, configurable: true });
+  defProp(response, "type", { value: "basic", configurable: true });
+  if (url !== finalUrl) defProp(response, "redirected", { value: true, configurable: true });
+  if (headers.has("set-cookie")) defProp(response, "headers", { value: headers, configurable: true });
   return response;
 }
 
