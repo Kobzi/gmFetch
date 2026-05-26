@@ -3,7 +3,7 @@
 Drop-in `fetch()` replacement for userscripts, powered by `GM_xmlhttpRequest`. Supports cross-origin requests, forbidden headers, cookie injection, proxies, streaming, and upload progress while preserving familiar Fetch API ergonomics.
 
 Available in two variants:
-- **Full** (~3.1 KB min) — closely aligned with Fetch spec, SRI, streaming, cache modes, GM options
+- **Full** (~3.2 KB min) — closely aligned with Fetch spec, SRI, streaming, cache modes, GM options
 - **Lite** (~1.9 KB min) — minimal footprint, core fetch semantics only
 
 ```ts
@@ -44,24 +44,6 @@ const data = await r.json();
 **Use Lite when:** simple GET/POST requests, no need for GM-specific options (proxy, progress, gm.cookie), size matters.
 
 **Use Full when:** you need GM-specific features (gm.cookie, proxy, timeout, progress), SRI, streaming, or cache control.
-
----
-
-## Why use it
-
-| Capability | Native `fetch()` | `gmFetch` |
-|---|---|---|
-| Cross-origin without CORS | ❌ | ✅ |
-| Send `Cookie` / `User-Agent` / `Referer` / `Origin` | ❌ stripped | ✅ |
-| Read `Set-Cookie` from response | ❌ | ✅ |
-| Inject cookies (`gm.cookie`) | ❌ | ✅ (full) |
-| HTTP Basic Auth fields | ❌ header only | ✅ (full) `gm.user` / `gm.password` |
-| CHIPS partitioned cookies | ❌ | ✅ (full) `gm.cookiePartition` |
-| HTTP/SOCKS proxy (Firefox) | ❌ | ✅ (full) `gm.proxy` |
-| Override response MIME | ❌ | ✅ (full) `gm.overrideMimeType` |
-| SRI integrity verification | ❌ | ✅ (full) |
-| Background fetch (Chrome MV3) | ❌ | ✅ (full) `gm.fetch` |
-| Upload progress | ❌ | ✅ (full) `gm.onuploadprogress` |
 
 ---
 
@@ -378,10 +360,10 @@ npm run build
 Output:
 ```
 dist/
-├── gmFetch.esm.min.js         3.1 KB  (full, ESM)
-├── gmFetch.iife.min.js        3.1 KB  (full, IIFE)
-├── gmFetch.lite.esm.min.js    1.8 KB  (lite, ESM)
-├── gmFetch.lite.iife.min.js   1.8 KB  (lite, IIFE)
+├── gmFetch.esm.min.js         3.2 KB  (full, ESM)
+├── gmFetch.iife.min.js        3.2 KB  (full, IIFE)
+├── gmFetch.lite.esm.min.js    1.9 KB  (lite, ESM)
+├── gmFetch.lite.iife.min.js   1.9 KB  (lite, IIFE)
 ├── gmFetch.d.ts               (types, full)
 └── gmFetch.lite.d.ts          (types, lite)
 ```
@@ -390,16 +372,18 @@ Sizes (esbuild + terser, minified, no gzip):
 
 | Variant | ESM | IIFE |
 |---|---|---|
-| Full | 3.1 KB | 3.1 KB |
-| Lite | 1.8 KB | 1.8 KB |
+| Full | 3.2 KB | 3.2 KB |
+| Lite | 1.9 KB | 1.9 KB |
 
 For comparison (IIFE, minified):
 | Library | Size | Notes |
 |---|---|---|
-| **@kobzi/gmfetch lite** | **1.8 KB** | own terser build, more correct |
+| gmxhr-fetch | 0.9 KB | ultra-minimal, no AbortSignal, no types, unmaintained |
+| **@kobzi/gmfetch lite** | **1.9 KB** | own terser build, more correct |
 | @sec-ant/gm-fetch | 1.9 KB | includes vite-plugin-monkey runtime |
 | @trim21/gm-fetch | 2.1 KB | minified by jsdelivr (no own min build) |
-| **@kobzi/gmfetch full** | **3.1 KB** | own terser build, full GM API surface |
+| **@kobzi/gmfetch full** | **3.2 KB** | own terser build, full GM API surface |
+| @uwx/gm-fetch | 12.4 KB | not minified, custom Response class |
 
 Pipeline: `esbuild` (bundle + minify, target `es2024`) → `terser` (3-pass compress + toplevel mangle).
 
@@ -424,13 +408,62 @@ import gmFetch, {
 import gmFetch, { type GmFetchLiteInit } from "@kobzi/gmfetch/lite";
 ```
 
-Requires `lib: ["DOM"]` (or any superset like `["ES2020", "DOM"]`). For IIFE usage, add a `.d.ts` with `declare function gmFetch(...)`.
+Requires `lib: ["ES2024", "DOM"]`. For IIFE usage, add a `.d.ts` with `declare function gmFetch(...)`.
 
 ---
 
 ## Background
 
 Inspired by [@sec-ant/gm-fetch](https://www.npmjs.com/package/@sec-ant/gm-fetch) and [@trim21/gm-fetch](https://www.npmjs.com/package/@trim21/gm-fetch). This library goes further — carefully aligned Fetch semantics, preserved forbidden headers, full GM API surface, SRI integrity, and a lite variant for size-conscious scripts.
+
+---
+
+## Comparison
+
+| Feature | Fetch spec | GM specific | **@kobzi full** | **@kobzi lite** | @sec-ant | @trim21 | gmxhr-fetch | @uwx/gm-fetch |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Size (IIFE, min)** | — | — | **3.2 KB** | **1.9 KB** | 1.9 KB | 2.1 KB | 0.9 KB | 12.4 KB |
+| **Dependencies** | — | — | 0 | 0 | vite-plugin-monkey | 0 | 0 | 0 |
+| Request normalisation | ✓ | | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| AbortSignal + cleanup | ✓ | | ✓ | ✓ | ⚠️ leak | ⚠️ leak | ✗ | ✗ |
+| signal.reason propagation | ✓ | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
+| Double-settle guard | ✓ | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
+| status:0 → TypeError | ✓ | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
+| Timeout → TimeoutError | ✓ | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
+| Forbidden headers | | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
+| Response url/type/redirected | ✓ | | ✓ | ✓ | ✓ | ⚠️ inverted | ✗ | ✓ |
+| Set-Cookie preservation | | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
+| credentials → anonymous | ✓ | | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
+| redirect passthrough | ✓ | | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
+| Cache mode mapping | ✓ | | ✓ | ✗ | ⚠️ partial | ✗ | ✗ | ✗ |
+| ReadableStream response | ✓ | | ✓ | ✗ | ✓ | ✗ | ✗ | ✗ |
+| SRI integrity | ✓ | | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| GM options (cookie, proxy, etc.) | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Upload progress | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Download progress | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Background fetch (MV3) | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| maxRedirects | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Binary body support | ✓ | | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ |
+| RFC 7230 header folding | ✓ | | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
+| Cross-realm stream detection | | ✓ | ✓ | — | ✗ | — | — | — |
+| TypeScript types included | | | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| Last updated | | | 2026 | 2026 | 2025 | 2025 | 2022 | 2020 |
+| duplex (upload streaming) | ✓ | | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| mode (cors/no-cors/same-origin) | ✓ | | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ |
+| referrer / referrerPolicy | ✓ | | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ |
+| keepalive | ✓ | | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ |
+| priority | ✓ | | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ |
+| opaqueredirect response | ✓ | | ✗² | ✗² | ✗² | ✗² | ✗² | ✗² |
+| response.trailer | ✓ | | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+
+¹ Silently ignored — no GM_xmlhttpRequest equivalent exists.
+² GM returns full 3xx response with headers/body instead of opaque redirect.
+
+**Key advantages over alternatives:**
+- vs @sec-ant: forbidden headers support, AbortSignal cleanup (no memory leak), signal.reason propagation, no vite-plugin-monkey dependency
+- vs @trim21: correct binary body handling (trim21 corrupts via `.text()`), proper header parsing, correct `redirected` flag, Set-Cookie access, smaller when minified
+- vs gmxhr-fetch: AbortSignal, Request normalisation, Response properties, TypeScript, error semantics — gmxhr-fetch is a bare-minimum wrapper with no spec compliance
+- vs @uwx/gm-fetch: 4x smaller (3.2 vs 12.4 KB), minified build included, no custom Response class overhead
 
 ---
 
