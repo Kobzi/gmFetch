@@ -1,6 +1,6 @@
 {
   "name": "@kobzi/gmfetch",
-  "version": "1.1.2",
+  "version": "1.2.0",
   "description": "Drop-in fetch() replacement for userscripts, backed by GM_xmlhttpRequest. Bypasses CORS, forbidden headers, and cookie restrictions.",
   "author": "Kobzi",
   "license": "MIT",
@@ -21,8 +21,15 @@
         "default": "./dist/gmFetch.lite.esm.min.js"
       }
     },
+    "./micro": {
+      "import": {
+        "types": "./dist/gmFetch.micro.d.ts",
+        "default": "./dist/gmFetch.micro.esm.min.js"
+      }
+    },
     "./iife": "./dist/gmFetch.iife.min.js",
-    "./lite/iife": "./dist/gmFetch.lite.iife.min.js"
+    "./lite/iife": "./dist/gmFetch.lite.iife.min.js",
+    "./micro/iife": "./dist/gmFetch.micro.iife.min.js"
   },
   "files": [
     "dist",
@@ -31,11 +38,12 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "npm run build:full && npm run build:lite && npm run build:types && npm run compress",
+    "build": "npm run build:full && npm run build:lite && npm run build:micro && npm run build:types && npm run compress",
     "build:full": "esbuild src/gmFetch.ts --bundle --format=esm --target=es2024 --minify --outfile=dist/gmFetch.esm.min.js && esbuild src/gmFetch.iife.ts --bundle --format=iife --target=es2024 --minify --outfile=dist/gmFetch.iife.min.js",
     "build:lite": "esbuild src/gmFetch.lite.ts --bundle --format=esm --target=es2024 --minify --outfile=dist/gmFetch.lite.esm.min.js && esbuild src/gmFetch.lite.iife.ts --bundle --format=iife --target=es2024 --minify --outfile=dist/gmFetch.lite.iife.min.js",
+    "build:micro": "esbuild src/gmFetch.micro.ts --bundle --format=esm --target=es2024 --minify --outfile=dist/gmFetch.micro.esm.min.js && esbuild src/gmFetch.micro.iife.ts --bundle --format=iife --target=es2024 --minify --outfile=dist/gmFetch.micro.iife.min.js",
     "build:types": "tsc --emitDeclarationOnly",
-    "compress": "terser dist/gmFetch.esm.min.js -o dist/gmFetch.esm.min.js -c passes=3,pure_getters=true,unsafe=true,toplevel=true -m toplevel=true && terser dist/gmFetch.iife.min.js -o dist/gmFetch.iife.min.js -c passes=3,pure_getters=true,unsafe=true -m && terser dist/gmFetch.lite.esm.min.js -o dist/gmFetch.lite.esm.min.js -c passes=3,pure_getters=true,unsafe=true,toplevel=true -m toplevel=true && terser dist/gmFetch.lite.iife.min.js -o dist/gmFetch.lite.iife.min.js -c passes=3,pure_getters=true,unsafe=true -m",
+    "compress": "terser dist/gmFetch.esm.min.js -o dist/gmFetch.esm.min.js -c passes=3,pure_getters=true,unsafe=true,toplevel=true -m toplevel=true && terser dist/gmFetch.iife.min.js -o dist/gmFetch.iife.min.js -c passes=3,pure_getters=true,unsafe=true -m && terser dist/gmFetch.lite.esm.min.js -o dist/gmFetch.lite.esm.min.js -c passes=3,pure_getters=true,unsafe=true,toplevel=true -m toplevel=true && terser dist/gmFetch.lite.iife.min.js -o dist/gmFetch.lite.iife.min.js -c passes=3,pure_getters=true,unsafe=true -m && terser dist/gmFetch.micro.esm.min.js -o dist/gmFetch.micro.esm.min.js -c passes=3,pure_getters=true,unsafe=true,toplevel=true -m toplevel=true && terser dist/gmFetch.micro.iife.min.js -o dist/gmFetch.micro.iife.min.js -c passes=3,pure_getters=true,unsafe=true -m",
     "prepublishOnly": "npm run build"
   },
   "keywords": [

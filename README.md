@@ -2,9 +2,10 @@
 
 Drop-in `fetch()` replacement for userscripts, powered by `GM_xmlhttpRequest`. Supports cross-origin requests, forbidden headers, cookie injection, proxies, streaming, and upload progress while preserving familiar Fetch API ergonomics.
 
-Available in two variants:
+Available in three variants:
 - **Full** (~3.2 KB min) — closely aligned with Fetch spec, SRI, streaming, cache modes, GM options
-- **Lite** (~1.9 KB min) — minimal footprint, core fetch semantics only
+- **Lite** (~1.9 KB min) — core fetch semantics, AbortSignal, forbidden headers
+- **Micro** (~0.7 KB min) — absolute minimum for simple GET/POST, no abort, no timeout
 
 ```ts
 // Full
@@ -13,9 +14,13 @@ import gmFetch from "@kobzi/gmfetch";
 // Lite
 import gmFetch from "@kobzi/gmfetch/lite";
 
+// Micro
+import gmFetch from "@kobzi/gmfetch/micro";
+
 // IIFE (classic userscript)
 // @require https://cdn.jsdelivr.net/npm/@kobzi/gmfetch@latest/dist/gmFetch.iife.min.js
 // @require https://cdn.jsdelivr.net/npm/@kobzi/gmfetch@latest/dist/gmFetch.lite.iife.min.js
+// @require https://cdn.jsdelivr.net/npm/@kobzi/gmfetch@latest/dist/gmFetch.micro.iife.min.js
 ```
 
 ```ts
@@ -25,25 +30,34 @@ const data = await r.json();
 
 ---
 
-## Full vs Lite
+## Full vs Lite vs Micro
 
-| Feature | Full | Lite |
-|---|:---:|:---:|
-| Request normalisation (URL, method, body) | ✓ | ✓ |
-| AbortSignal / AbortController | ✓ | ✓ |
-| Response url / type / redirected / headers | ✓ | ✓ |
-| credentials → anonymous mapping | ✓ | ✓ |
-| Error semantics (TypeError / DOMException) | ✓ | ✓ |
-| SRI integrity verification | ✓ | ✗ |
-| Cache mode mapping (no-store / reload / no-cache) | ✓ | ✗ |
-| ReadableStream response | ✓ | ✗ |
-| Forbidden headers preservation (raw init.headers) | ✓ | ✓ |
-| GM options (cookie, proxy, timeout, fetch, etc.) | ✓ | ✗ |
-| Early headers via onreadystatechange | ✓ | ✗ |
+| Feature | Full | Lite | Micro |
+|---|:---:|:---:|:---:|
+| Request normalisation (URL, method, body) | ✓ | ✓ | ✓ |
+| Native Response (ok, json, blob, clone) | ✓ | ✓ | ✓ |
+| Response url | ✓ | ✓ | ✓ |
+| credentials → anonymous mapping | ✓ | ✓ | ✓ |
+| redirect passthrough | ✓ | ✓ | ✓ |
+| Binary body support | ✓ | ✓ | ✓ |
+| status:0 → TypeError | ✓ | ✓ | ✓ |
+| AbortSignal / AbortController | ✓ | ✓ | ✗ |
+| Forbidden headers preservation | ✓ | ✓ | ✗ |
+| RFC 7230 header folding | ✓ | ✓ | ✗ |
+| Response type / redirected / set-cookie | ✓ | ✓ | ✗ |
+| Error semantics (DOMException types) | ✓ | ✓ | ✗ |
+| Cache mode mapping | ✓ | ✗ | ✗ |
+| ReadableStream response | ✓ | ✗ | ✗ |
+| SRI integrity verification | ✓ | ✗ | ✗ |
+| GM options (cookie, proxy, timeout, etc.) | ✓ | ✗ | ✗ |
+| Upload/download progress | ✓ | ✗ | ✗ |
+| Early headers via onreadystatechange | ✓ | ✗ | ✗ |
 
-**Use Lite when:** simple GET/POST requests, no need for GM-specific options (proxy, progress, gm.cookie), size matters.
+**Use Micro when:** simple GET/POST, grab JSON, size is everything, no abort needed.
 
-**Use Full when:** you need GM-specific features (gm.cookie, proxy, timeout, progress), SRI, streaming, or cache control.
+**Use Lite when:** need AbortSignal, forbidden headers (Cookie/UA), proper error handling.
+
+**Use Full when:** need GM-specific features, SRI, streaming, cache control, progress events.
 
 ---
 
@@ -54,6 +68,7 @@ const data = await r.json();
 ```ts
 import gmFetch from "@kobzi/gmfetch";       // full
 import gmFetch from "@kobzi/gmfetch/lite";   // lite
+import gmFetch from "@kobzi/gmfetch/micro";  // micro
 ```
 
 ### CDN (IIFE, no bundler)
@@ -68,9 +83,10 @@ import gmFetch from "@kobzi/gmfetch/lite";   // lite
 const r = await gmFetch("https://example.com/api");
 ```
 
-Or for lite:
+Or for lite/micro:
 ```js
 // @require https://cdn.jsdelivr.net/npm/@kobzi/gmfetch@latest/dist/gmFetch.lite.iife.min.js
+// @require https://cdn.jsdelivr.net/npm/@kobzi/gmfetch@latest/dist/gmFetch.micro.iife.min.js
 ```
 
 The IIFE exposes `gmFetch` as a global. Pin to a specific version for stability.
@@ -105,16 +121,16 @@ interface GmFetchInit extends RequestInit {
 
 ### Standard `RequestInit` fields
 
-| Field | Full | Lite | Behaviour |
-|---|:---:|:---:|---|
-| `method` | ✓ | ✓ | As-is. `CONNECT`/`TRACE`/`TRACK` rejected per spec. |
-| `headers` | ✓ | ✓ | Forbidden headers preserved when passed as plain object/tuples (not `Headers` instance). |
-| `body` | ✓ | ✓ | Buffered as Blob, sent with `binary: true`. |
-| `credentials` | ✓ | ✓ | `"omit"` → `anonymous: true`. Others use GM defaults. |
-| `cache` | ✓ | ✗ | `"no-store"`/`"reload"` → `nocache`. `"no-cache"` → `revalidate`. `"only-if-cached"` → rejected. |
-| `redirect` | ✓ | ✓ | `"follow"`, `"error"`, `"manual"` passed to GM. |
-| `signal` | ✓ | ✓ | AbortSignal with `reason` propagation. Cancels GM request. |
-| `integrity` | ✓ | ✗ | SRI verification (sha256/384/512). |
+| Field | Full | Lite | Micro | Behaviour |
+|---|:---:|:---:|:---:|---|
+| `method` | ✓ | ✓ | ✓ | As-is. `CONNECT`/`TRACE`/`TRACK` rejected per spec. |
+| `headers` | ✓ | ✓ | ✓ | Full/Lite: forbidden headers preserved (plain object/tuples). Micro: normalised via Request only. |
+| `body` | ✓ | ✓ | ✓ | Buffered as Blob, sent with `binary: true`. |
+| `credentials` | ✓ | ✓ | ✓ | `"omit"` → `anonymous: true`. Others use GM defaults. |
+| `cache` | ✓ | ✗ | ✗ | `"no-store"`/`"reload"` → `nocache`. `"no-cache"` → `revalidate`. `"only-if-cached"` → rejected. |
+| `redirect` | ✓ | ✓ | ✓ | `"follow"`, `"error"`, `"manual"` passed to GM. |
+| `signal` | ✓ | ✓ | ✗ | AbortSignal with `reason` propagation. Cancels GM request. |
+| `integrity` | ✓ | ✗ | ✗ | SRI verification (sha256/384/512). |
 
 ### `GmOptions` — the `gm` field (full only)
 
@@ -165,13 +181,13 @@ const cookies = r.headers.getSetCookie(); // ["session=abc; HttpOnly", ...]
 
 ## Cookies
 
-Sending cookies via `headers` works in **both** variants. The `gm.cookie` option (additive patching) is full only.
+Sending cookies via `headers` works in **full and lite** (forbidden headers preserved). In micro, cookies via `headers` only work if the browser doesn't strip them (use full/lite for reliable cookie injection). The `gm.cookie` option (additive patching) is full only.
 
 | Goal | Use | Variant |
 |---|---|---|
-| Send exact cookies, ignore browser session | `credentials: "omit"` + `headers: { Cookie: "..." }` | both |
+| Send exact cookies, ignore browser session | `credentials: "omit"` + `headers: { Cookie: "..." }` | full, lite |
 | Add cookies on top of browser session | `gm: { cookie: "..." }` (additive) | full |
-| Browser session as-is | default (nothing) | both |
+| Browser session as-is | default (nothing) | all |
 
 ---
 
@@ -190,7 +206,7 @@ gmFetch(url, { signal: ctrl.signal });
 ctrl.abort();
 ```
 
-Both produce `DOMException` with name `"TimeoutError"` or `"AbortError"`.
+All produce `DOMException` with name `"TimeoutError"` or `"AbortError"` (full and lite only — micro has no abort/timeout support).
 
 ---
 
@@ -210,7 +226,7 @@ Both produce `DOMException` with name `"TimeoutError"` or `"AbortError"`.
 
 ## Examples
 
-### POST JSON (both variants)
+### POST JSON (all variants)
 
 ```ts
 const r = await gmFetch("https://api.example.com/items", {
@@ -220,7 +236,7 @@ const r = await gmFetch("https://api.example.com/items", {
 });
 ```
 
-### Forbidden headers (both variants)
+### Forbidden headers (full and lite)
 
 ```ts
 const r = await gmFetch("https://example.com/protected", {
@@ -360,12 +376,15 @@ npm run build
 Output:
 ```
 dist/
-├── gmFetch.esm.min.js         3.2 KB  (full, ESM)
-├── gmFetch.iife.min.js        3.2 KB  (full, IIFE)
-├── gmFetch.lite.esm.min.js    1.9 KB  (lite, ESM)
-├── gmFetch.lite.iife.min.js   1.9 KB  (lite, IIFE)
-├── gmFetch.d.ts               (types, full)
-└── gmFetch.lite.d.ts          (types, lite)
+├── gmFetch.esm.min.js          3.2 KB  (full, ESM)
+├── gmFetch.iife.min.js         3.2 KB  (full, IIFE)
+├── gmFetch.lite.esm.min.js     1.9 KB  (lite, ESM)
+├── gmFetch.lite.iife.min.js    1.9 KB  (lite, IIFE)
+├── gmFetch.micro.esm.min.js   ~0.7 KB  (micro, ESM)
+├── gmFetch.micro.iife.min.js  ~0.7 KB  (micro, IIFE)
+├── gmFetch.d.ts                (types, full)
+├── gmFetch.lite.d.ts           (types, lite)
+└── gmFetch.micro.d.ts          (types, micro)
 ```
 
 Sizes (esbuild + terser, minified, no gzip):
@@ -374,10 +393,12 @@ Sizes (esbuild + terser, minified, no gzip):
 |---|---|---|
 | Full | 3.2 KB | 3.2 KB |
 | Lite | 1.9 KB | 1.9 KB |
+| Micro | ~0.7 KB | ~0.7 KB |
 
 For comparison (IIFE, minified):
 | Library | Size | Notes |
 |---|---|---|
+| **@kobzi/gmfetch micro** | **~0.7 KB** | absolute minimum, no abort |
 | gmxhr-fetch | 0.9 KB | ultra-minimal, no AbortSignal, no types, unmaintained |
 | **@kobzi/gmfetch lite** | **1.9 KB** | own terser build, more correct |
 | @sec-ant/gm-fetch | 1.9 KB | includes vite-plugin-monkey runtime |
@@ -406,6 +427,9 @@ import gmFetch, {
 
 // Lite
 import gmFetch, { type GmFetchLiteInit } from "@kobzi/gmfetch/lite";
+
+// Micro
+import gmFetch, { type GmFetchMicroInit } from "@kobzi/gmfetch/micro";
 ```
 
 Requires `lib: ["ES2024", "DOM"]`. For IIFE usage, add a `.d.ts` with `declare function gmFetch(...)`.
@@ -420,38 +444,40 @@ Inspired by [@sec-ant/gm-fetch](https://www.npmjs.com/package/@sec-ant/gm-fetch)
 
 ## Comparison
 
-| Feature | Fetch spec | GM specific | **@kobzi full** | **@kobzi lite** | @sec-ant | @trim21 | gmxhr-fetch | @uwx/gm-fetch |
-|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Size (IIFE, min)** | — | — | **3.2 KB** | **1.9 KB** | 1.9 KB | 2.1 KB | 0.9 KB | 12.4 KB |
-| **Dependencies** | — | — | 0 | 0 | vite-plugin-monkey | 0 | 0 | 0 |
-| Request normalisation | ✓ | | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
-| AbortSignal + cleanup | ✓ | | ✓ | ✓ | ⚠️ leak | ⚠️ leak | ✗ | ✗ |
-| signal.reason propagation | ✓ | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
-| Double-settle guard | ✓ | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
-| status:0 → TypeError | ✓ | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
-| Timeout → TimeoutError | ✓ | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
-| Forbidden headers | | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
-| Response url/type/redirected | ✓ | | ✓ | ✓ | ✓ | ⚠️ inverted | ✗ | ✓ |
-| Set-Cookie preservation | | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
-| credentials → anonymous | ✓ | | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
-| redirect passthrough | ✓ | | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
-| Cache mode mapping | ✓ | | ✓ | ✗ | ⚠️ partial | ✗ | ✗ | ✗ |
-| ReadableStream response | ✓ | | ✓ | ✗ | ✓ | ✗ | ✗ | ✗ |
-| SRI integrity | ✓ | | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| GM options (cookie, proxy, etc.) | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Upload progress | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Download progress | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Background fetch (MV3) | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| maxRedirects | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| Binary body support | ✓ | | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ |
-| RFC 7230 header folding | ✓ | | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
-| Cross-realm stream detection | | ✓ | ✓ | — | ✗ | — | — | — |
-| TypeScript types included | | | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
-| Last updated | | | 2026 | 2026 | 2025 | 2025 | 2022 | 2020 |
-| duplex (upload streaming) | ✓ | | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
-| mode (cors/no-cors/same-origin) | ✓ | | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ |
-| referrer / referrerPolicy | ✓ | | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ |
-| keepalive | ✓ | | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ |
+| Feature | Fetch spec | GM specific | **@kobzi full** | **@kobzi lite** | **@kobzi micro** | @sec-ant | @trim21 | gmxhr-fetch | @uwx/gm-fetch |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
+| **Size (IIFE, min)** | — | — | **3.2 KB** | **1.9 KB** | **~0.7 KB** | 1.9 KB | 2.1 KB | 0.9 KB | 12.4 KB |
+| **Dependencies** | — | — | 0 | 0 | 0 | vite-plugin-monkey | 0 | 0 | 0 |
+| Request normalisation | ✓ | | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| AbortSignal + cleanup | ✓ | | ✓ | ✓ | ✗ | ⚠️ leak | ⚠️ leak | ✗ | ✗ |
+| signal.reason propagation | ✓ | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Double-settle guard | ✓ | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| status:0 → TypeError | ✓ | | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
+| Timeout → TimeoutError | ✓ | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Forbidden headers | | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Response url/type/redirected | ✓ | | ✓ | ✓ | url only | ✓ | ⚠️ inverted | ✗ | ✓ |
+| Set-Cookie preservation | | ✓ | ✓ | ✓ | ✗ | ✓ | ✗ | ✗ | ✗ |
+| credentials → anonymous | ✓ | | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
+| redirect passthrough | ✓ | | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
+| Cache mode mapping | ✓ | | ✓ | ✗ | ✗ | ⚠️ partial | ✗ | ✗ | ✗ |
+| ReadableStream response | ✓ | | ✓ | ✗ | ✗ | ✓ | ✗ | ✗ | ✗ |
+| SRI integrity | ✓ | | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| GM options (cookie, proxy, etc.) | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Upload progress | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Download progress | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Background fetch (MV3) | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| maxRedirects | | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| Binary body support | ✓ | | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✓ |
+| Empty body → undefined (no empty Blob sent) | ✓ | | ✓ | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ |
+| RFC 7230 header folding | ✓ | | ✓ | ✓ | ✗ | ✓ | ✗ | ✗ | ✗ |
+| onerror → generic TypeError (spec) | ✓ | | ✓ | ✓ | ✓ | ✗ | ✗ | ✗ | ✗ |
+| Cross-realm stream detection | | ✓ | ✓ | — | — | ✗ | — | — | — |
+| TypeScript types included | | | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
+| Last updated | | | 2026 | 2026 | 2026 | 2025 | 2025 | 2022 | 2020 |
+| duplex (upload streaming) | ✓ | | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
+| mode (cors/no-cors/same-origin) | ✓ | | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ |
+| referrer / referrerPolicy | ✓ | | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ |
+| keepalive | ✓ | | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ |
 | priority | ✓ | | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ | ✗¹ |
 | opaqueredirect response | ✓ | | ✗² | ✗² | ✗² | ✗² | ✗² | ✗² |
 | response.trailer | ✓ | | ✗ | ✗ | ✗ | ✗ | ✗ | ✗ |
