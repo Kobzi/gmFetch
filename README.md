@@ -3,9 +3,9 @@
 Drop-in `fetch()` replacement for userscripts, powered by `GM_xmlhttpRequest`. Supports cross-origin requests, forbidden headers, cookie injection, proxies, streaming, and upload progress while preserving familiar Fetch API ergonomics.
 
 Available in three variants:
-- **Full** (~3.2 KB min) — closely aligned with Fetch spec, SRI, streaming, cache modes, GM options
-- **Lite** (~1.9 KB min) — core fetch semantics, AbortSignal, forbidden headers
-- **Micro** (~0.7 KB min) — absolute minimum for simple GET/POST, no abort, no timeout
+- **Full** (~3.3 KB min, ~1.7 KB gzip) — closely aligned with Fetch spec, SRI, streaming, cache modes, GM options
+- **Lite** (~2.0 KB min, ~1.0 KB gzip) — core fetch semantics, AbortSignal, forbidden headers
+- **Micro** (~0.8 KB min, ~0.5 KB gzip) — absolute minimum for simple GET/POST, no abort, no timeout
 
 ```ts
 // Full
@@ -40,6 +40,7 @@ const data = await r.json();
 | credentials → anonymous mapping | ✓ | ✓ | ✓ |
 | redirect passthrough | ✓ | ✓ | ✓ |
 | Binary body support | ✓ | ✓ | ✓ |
+| Text body sent as-is (no forced Blob) | ✓ | ✓ | ✓ |
 | status:0 → TypeError | ✓ | ✓ | ✓ |
 | AbortSignal / AbortController | ✓ | ✓ | ✗ |
 | Forbidden headers preservation | ✓ | ✓ | ✗ |
@@ -125,7 +126,7 @@ interface GmFetchInit extends RequestInit {
 |---|:---:|:---:|:---:|---|
 | `method` | ✓ | ✓ | ✓ | As-is. `CONNECT`/`TRACE`/`TRACK` rejected per spec. |
 | `headers` | ✓ | ✓ | ✓ | Full/Lite: forbidden headers preserved (plain object/tuples). Micro: normalised via Request only. |
-| `body` | ✓ | ✓ | ✓ | Buffered as Blob, sent with `binary: true`. |
+| `body` | ✓ | ✓ | ✓ | Text (string/`URLSearchParams`) sent as-is; other types buffered as Blob with `binary: true`. |
 | `credentials` | ✓ | ✓ | ✓ | `"omit"` → `anonymous: true`. Others use GM defaults. |
 | `cache` | ✓ | ✗ | ✗ | `"no-store"`/`"reload"` → `nocache`. `"no-cache"` → `revalidate`. `"only-if-cached"` → rejected. |
 | `redirect` | ✓ | ✓ | ✓ | `"follow"`, `"error"`, `"manual"` passed to GM. |
@@ -149,6 +150,33 @@ Only whitelisted keys are forwarded (protects internal callbacks):
 | `onloadstart` | Load-start callback. |
 | `onuploadprogress` | Upload progress callback. Not available in native fetch. TM 4.x+. |
 | `overrideMimeType` | Force response MIME (e.g. `"text/html; charset=gbk"`). |
+
+---
+
+## Request body
+
+The body is sent in the format that matches its type, so servers receive what they expect:
+
+| Body type | Sent as | `binary` |
+|---|---|:---:|
+| `string` (e.g. `JSON.stringify(...)`) | text, as-is | `false` |
+| `URLSearchParams` | text, as-is | `false` |
+| `Blob` / `File` | buffered Blob | `true` |
+| `ArrayBuffer` / `TypedArray` / `DataView` | buffered Blob | `true` |
+| `FormData` | buffered Blob (multipart) | `true` |
+
+Text bodies are forwarded directly rather than wrapped in a Blob with `binary: true`. This matters because some servers reject or mishandle binary blob uploads when they expect a plain JSON/form payload. The `Content-Type` computed by the `Request` constructor is always included in the request headers regardless of body type.
+
+```ts
+// Sent as a normal JSON text body, not a binary blob
+await gmFetch("https://api.example.com/items", {
+  method: "POST",
+  headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({ name: "thing" }),
+});
+```
+
+Empty bodies are omitted entirely (no empty Blob or empty string is dispatched). Applies to all three variants.
 
 ---
 
@@ -214,13 +242,27 @@ All produce `DOMException` with name `"TimeoutError"` or `"AbortError"` (full an
 
 | Cause | Error |
 |---|---|
-| GM not granted | `DOMException("...", "NotFoundError")` |
+| GM not granted | `DOMException("...", "NotFoundError")` (full/lite). Micro throws a plain `TypeError`. |
 | Abort / signal | `DOMException("...", "AbortError")` or signal's `reason` |
 | Timeout | `DOMException("...", "TimeoutError")` |
 | Network / DNS / `@connect` | `TypeError("Failed to fetch")` |
 | `status: 0` | `TypeError("Failed to fetch")` |
 | SRI mismatch (full) | `TypeError("gmFetch: integrity mismatch")` |
 | `only-if-cached` (full) | `TypeError("gmFetch: only-if-cached unsupported")` |
+
+The `message` is kept spec-generic (native `fetch` never leaks network failure details). For debugging, network errors (`onerror` and `status: 0`) attach the raw GM event on `error.cause` in **full and lite**, so you can inspect `status`, `statusText`, `finalUrl`, `responseHeaders`, etc.:
+
+```ts
+try {
+  await gmFetch("https://example.com");
+} catch (e) {
+  console.error(e.message);        // "Failed to fetch"
+  console.error(e.cause?.error);   // GM-provided detail, if any
+  console.error(e.cause?.finalUrl);
+}
+```
+
+> Micro throws a bare `TypeError("Failed to fetch")` with no `cause`.
 
 ---
 
@@ -355,7 +397,7 @@ const r = await gmFetch("https://cdn.example.com/lib.js", {
 **Not supported** (GM_xmlhttpRequest limitation):
 - `duplex: "half"` — upload streaming is not possible; body is always fully buffered before sending.
 - `response.trailer` — HTTP trailers are not exposed by GM.
-- Request body streaming — all bodies are serialized to Blob before dispatch.
+- Request body streaming — bodies are never streamed. Text bodies (string, `URLSearchParams`) are passed through as-is; binary bodies (Blob, `ArrayBuffer`, typed arrays, `FormData`) are buffered to a Blob before dispatch.
 
 **Spec-divergent:**
 - `redirect: "manual"` — returns 3xx with readable `Location` header (spec says opaque response with `status: 0`). GM gives *more* info than spec allows.
@@ -376,34 +418,34 @@ npm run build
 Output:
 ```
 dist/
-├── gmFetch.esm.min.js          3.2 KB  (full, ESM)
-├── gmFetch.iife.min.js         3.2 KB  (full, IIFE)
-├── gmFetch.lite.esm.min.js     1.9 KB  (lite, ESM)
-├── gmFetch.lite.iife.min.js    1.9 KB  (lite, IIFE)
-├── gmFetch.micro.esm.min.js   ~0.7 KB  (micro, ESM)
-├── gmFetch.micro.iife.min.js  ~0.7 KB  (micro, IIFE)
+├── gmFetch.esm.min.js          3364 B  (full, ESM)
+├── gmFetch.iife.min.js         3383 B  (full, IIFE)
+├── gmFetch.lite.esm.min.js     2036 B  (lite, ESM)
+├── gmFetch.lite.iife.min.js    2055 B  (lite, IIFE)
+├── gmFetch.micro.esm.min.js     808 B  (micro, ESM)
+├── gmFetch.micro.iife.min.js    813 B  (micro, IIFE)
 ├── gmFetch.d.ts                (types, full)
 ├── gmFetch.lite.d.ts           (types, lite)
 └── gmFetch.micro.d.ts          (types, micro)
 ```
 
-Sizes (esbuild + terser, minified, no gzip):
+Sizes (esbuild + terser, minified):
 
-| Variant | ESM | IIFE |
-|---|---|---|
-| Full | 3.2 KB | 3.2 KB |
-| Lite | 1.9 KB | 1.9 KB |
-| Micro | ~0.7 KB | ~0.7 KB |
+| Variant | Raw (ESM) | Raw (IIFE) | Gzip (IIFE) | Brotli (IIFE) |
+|---|---:|---:|---:|---:|
+| Full | 3364 B | 3383 B | 1723 B | 1530 B |
+| Lite | 2036 B | 2055 B | 1051 B | 925 B |
+| Micro | 808 B | 813 B | 524 B | 442 B |
 
 For comparison (IIFE, minified):
 | Library | Size | Notes |
 |---|---|---|
-| **@kobzi/gmfetch micro** | **~0.7 KB** | absolute minimum, no abort |
+| **@kobzi/gmfetch micro** | **~0.8 KB** | absolute minimum, no abort |
 | gmxhr-fetch | 0.9 KB | ultra-minimal, no AbortSignal, no types, unmaintained |
-| **@kobzi/gmfetch lite** | **1.9 KB** | own terser build, more correct |
 | @sec-ant/gm-fetch | 1.9 KB | includes vite-plugin-monkey runtime |
+| **@kobzi/gmfetch lite** | **2.0 KB** | own terser build, more correct |
 | @trim21/gm-fetch | 2.1 KB | minified by jsdelivr (no own min build) |
-| **@kobzi/gmfetch full** | **3.2 KB** | own terser build, full GM API surface |
+| **@kobzi/gmfetch full** | **3.3 KB** | own terser build, full GM API surface |
 | @uwx/gm-fetch | 12.4 KB | not minified, custom Response class |
 
 Pipeline: `esbuild` (bundle + minify, target `es2024`) → `terser` (3-pass compress + toplevel mangle).
@@ -446,7 +488,7 @@ Inspired by [@sec-ant/gm-fetch](https://www.npmjs.com/package/@sec-ant/gm-fetch)
 
 | Feature | Fetch spec | GM specific | **@kobzi full** | **@kobzi lite** | **@kobzi micro** | @sec-ant | @trim21 | gmxhr-fetch | @uwx/gm-fetch |
 |---|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|:---:|
-| **Size (IIFE, min)** | — | — | **3.2 KB** | **1.9 KB** | **~0.7 KB** | 1.9 KB | 2.1 KB | 0.9 KB | 12.4 KB |
+| **Size (IIFE, min)** | — | — | **3.3 KB** | **2.0 KB** | **~0.8 KB** | 1.9 KB | 2.1 KB | 0.9 KB | 12.4 KB |
 | **Dependencies** | — | — | 0 | 0 | 0 | vite-plugin-monkey | 0 | 0 | 0 |
 | Request normalisation | ✓ | | ✓ | ✓ | ✓ | ✓ | ✓ | ✗ | ✓ |
 | AbortSignal + cleanup | ✓ | | ✓ | ✓ | ✗ | ⚠️ leak | ⚠️ leak | ✗ | ✗ |
@@ -489,7 +531,7 @@ Inspired by [@sec-ant/gm-fetch](https://www.npmjs.com/package/@sec-ant/gm-fetch)
 - vs @sec-ant: forbidden headers support, AbortSignal cleanup (no memory leak), signal.reason propagation, no vite-plugin-monkey dependency
 - vs @trim21: correct binary body handling (trim21 corrupts via `.text()`), proper header parsing, correct `redirected` flag, Set-Cookie access, smaller when minified
 - vs gmxhr-fetch: AbortSignal, Request normalisation, Response properties, TypeScript, error semantics — gmxhr-fetch is a bare-minimum wrapper with no spec compliance
-- vs @uwx/gm-fetch: 4x smaller (3.2 vs 12.4 KB), minified build included, no custom Response class overhead
+- vs @uwx/gm-fetch: 4x smaller (3.3 vs 12.4 KB), minified build included, no custom Response class overhead
 
 ---
 
