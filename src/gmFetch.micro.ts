@@ -5,36 +5,40 @@
 export interface GmFetchMicroInit extends RequestInit {}
 
 async function gmFetchMicro(input: RequestInfo | URL, init?: GmFetchMicroInit): Promise<Response> {
-  const gmXhr = (typeof GM_xmlhttpRequest === "function" ? GM_xmlhttpRequest
-    : (typeof GM === "object" ? GM?.xmlHttpRequest : undefined))!;
+  const gmXhr = (typeof GM_xmlhttpRequest === "function" ? GM_xmlhttpRequest : GM?.xmlHttpRequest)!;
 
   const request = new Request(input, init);
-  const body = request.body ? await request.blob() : undefined;
+  // Text bodies (string, URLSearchParams) go as-is so the server gets a normal
+  // text/JSON/form payload, not a binary blob upload. Other bodies buffer to Blob.
+  const raw = init?.body;
+  const text = typeof raw === "string" || raw instanceof URLSearchParams;
+  const blob = !text && request.body ? await request.blob() : undefined;
+  const data = text ? String(raw) || undefined : (blob?.size ? blob : undefined);
 
   return new Promise<Response>((resolve, reject) => {
+    const fail = () => reject(new TypeError("Failed to fetch"));
     gmXhr({
       method: request.method,
       url: request.url,
       redirect: request.redirect,
       headers: Object.fromEntries(request.headers as any),
-      data: body?.size ? body : undefined,
-      binary: true,
+      data,
+      binary: !text,
       anonymous: request.credentials === "omit",
       responseType: "blob" as any,
 
       onload(ev: any) {
-        if (!ev.status) { reject(new TypeError("Failed to fetch")); return; }
+        if (!ev.status) return fail();
         const h = new Headers();
-        for (const line of (ev.responseHeaders || "").split("\r\n")) {
-          const c = line.indexOf(":");
-          if (c > 0) try { h.append(line.slice(0, c).trim(), line.slice(c + 1).trim()); } catch {}
-        }
+        // Token header names only; Headers.append() normalizes the value (trims OWS/CR).
+        for (const m of (ev.responseHeaders || "").matchAll(/^([\w-]+):(.*)/gm))
+          try { h.append(m[1], m[2]); } catch {}
         const r = new Response(ev.response as Blob, { headers: h, status: ev.status, statusText: ev.statusText });
-        Object.defineProperty(r, "url", { value: ev.finalUrl, configurable: true });
+        Object.defineProperty(r, "url", { value: ev.finalUrl });
         resolve(r);
       },
 
-      onerror() { reject(new TypeError("Failed to fetch")); },
+      onerror: fail,
     });
   });
 }

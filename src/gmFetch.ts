@@ -62,14 +62,18 @@ const RE_FOLD = /\r?\n[\t ]+/g, RE_NEWLINE = /\r?\n/;
 const isStream = (v: unknown): v is ReadableStream =>
   v != null && typeof (v as any).getReader === "function";
 
+/** Network failure → spec-generic TypeError, with raw GM event on `.cause` for debugging. */
+const netErr = (cause: unknown): TypeError => new TypeErr(FETCH_ERR, { cause });
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 /** Stamp read-only Response properties that the constructor doesn't allow setting. */
 function stamp(response: Response, requestUrl: string, finalUrl: string, headers: Headers): Response {
-  defProp(response, "url", { value: finalUrl, configurable: true });
-  defProp(response, "type", { value: "basic", configurable: true });
-  if (requestUrl !== finalUrl) defProp(response, "redirected", { value: true, configurable: true });
-  if (headers.has("set-cookie")) defProp(response, "headers", { value: headers, configurable: true });
+  const def = (key: string, value: unknown): void => { defProp(response, key, { value, configurable: true }); };
+  def("url", finalUrl);
+  def("type", "basic");
+  if (requestUrl !== finalUrl) def("redirected", true);
+  if (headers.has("set-cookie")) def("headers", headers);
   return response;
 }
 
@@ -81,6 +85,27 @@ function parseHeaders(raw: string): Headers {
     if (colon > 0) try { headers.append(line.slice(0, colon).trim(), line.slice(colon + 1).trim()); } catch {}
   }
   return headers;
+}
+
+/**
+ * Decide how to hand the request body to GM_xmlhttpRequest.
+ *
+ * Text bodies (string, URLSearchParams) are forwarded as-is so the server
+ * receives a normal text/JSON/form payload instead of a binary blob upload —
+ * some endpoints reject or mishandle blob uploads. Everything else (Blob,
+ * ArrayBuffer, typed arrays, FormData) is buffered into a Blob and sent with
+ * `binary: true` to preserve bytes exactly. The Content-Type computed by the
+ * Request constructor is already in `request.headers`, so it is sent either way.
+ */
+async function readBody(
+  request: Request,
+  raw: BodyInit | null | undefined,
+): Promise<{ data: string | Blob | undefined; binary: boolean }> {
+  if (!request.body) return { data: undefined, binary: false };
+  if (typeof raw === "string") return { data: raw || undefined, binary: false };
+  if (raw instanceof URLSearchParams) return { data: String(raw) || undefined, binary: false };
+  const blob = await request.blob();
+  return { data: blob.size ? blob : undefined, binary: true };
 }
 
 async function verifyIntegrity(body: ArrayBuffer, integrity: string): Promise<void> {
@@ -129,16 +154,19 @@ async function gmFetch(input: RequestInfo | URL, init?: GmFetchInit): Promise<Re
   if (signal.aborted) throw makeAbortError();
   if (cache === "only-if-cached") throw new TypeErr("gmFetch: only-if-cached unsupported");
 
-  const requestBody = request.body ? await request.blob() : undefined;
-  if (requestBody && signal.aborted) throw makeAbortError();
+  const { data: requestBody, binary } = await readBody(request, init?.body);
+  if (request.body && signal.aborted) throw makeAbortError();
 
   const headers: Record<string, string> = fromEntries(request.headers as any);
   const rawHeaders = init?.headers as any;
   if (rawHeaders && !(rawHeaders instanceof Headers)) {
+    // Recover forbidden headers (Cookie, Host, Origin, ...) that the Request
+    // constructor strips. Only fill keys missing from request.headers so the
+    // already-combined value of repeated non-forbidden headers is preserved.
     if (typeof rawHeaders[Symbol.iterator] === "function")
-      for (const [k, v] of rawHeaders) headers[(k as string).toLowerCase()] = v;
+      for (const [k, v] of rawHeaders) headers[(k as string).toLowerCase()] ??= v;
     else
-      for (const k of Object.keys(rawHeaders)) headers[k.toLowerCase()] = rawHeaders[k];
+      for (const k of Object.keys(rawHeaders)) headers[k.toLowerCase()] ??= rawHeaders[k];
   }
 
   // Whitelist GM options
@@ -165,7 +193,7 @@ async function gmFetch(input: RequestInfo | URL, init?: GmFetchInit): Promise<Re
       if (settled) return;
       try {
         const { responseHeaders, status, statusText, finalUrl, response: body } = ev;
-        if (!status) { fail(new TypeErr(FETCH_ERR)); return; }
+        if (!status) { fail(netErr(ev)); return; }
 
         const h = parseHeaders(responseHeaders);
         const source = isStream(body) ? body : await blobReady;
@@ -190,8 +218,8 @@ async function gmFetch(input: RequestInfo | URL, init?: GmFetchInit): Promise<Re
     try {
       ({ abort: abortGm } = gmXhr({
         method, url, headers, redirect,
-        data: requestBody?.size ? requestBody : undefined,
-        binary: true,
+        data: requestBody,
+        binary,
         nocache: cache === "no-store" || cache === "reload",
         revalidate: cache === "no-cache",
         anonymous: credentials === "omit",
@@ -206,7 +234,7 @@ async function gmFetch(input: RequestInfo | URL, init?: GmFetchInit): Promise<Re
           if (readyState === 4 && !isStream(ev.response)) resolveBlobP(ev.response as Blob);
           handleResponse(ev);
         },
-        onerror({ statusText: st, error: err }: any) { fail(new TypeErr(st || err || FETCH_ERR)); },
+        onerror(ev: any) { fail(netErr(ev)); },
         ontimeout() { fail(new DOMEx("Timed out", "TimeoutError")); },
         onabort() { fail(makeAbortError()); },
       }));

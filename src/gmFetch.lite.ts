@@ -28,12 +28,16 @@ const defProp = Object.defineProperty;
 const FETCH_ERR = "Failed to fetch", ABORT_EVT = "abort";
 const RE_FOLD = /\r?\n[\t ]+/g, RE_NEWLINE = /\r?\n/;
 
+/** Network failure → spec-generic TypeError, with raw GM event on `.cause` for debugging. */
+const netErr = (cause: unknown): TypeError => new TypeErr(FETCH_ERR, { cause });
+
 /** Stamp read-only Response properties that the constructor doesn't allow setting. */
 function stamp(response: Response, url: string, finalUrl: string, headers: Headers): Response {
-  defProp(response, "url", { value: finalUrl, configurable: true });
-  defProp(response, "type", { value: "basic", configurable: true });
-  if (url !== finalUrl) defProp(response, "redirected", { value: true, configurable: true });
-  if (headers.has("set-cookie")) defProp(response, "headers", { value: headers, configurable: true });
+  const def = (key: string, value: unknown): void => { defProp(response, key, { value, configurable: true }); };
+  def("url", finalUrl);
+  def("type", "basic");
+  if (url !== finalUrl) def("redirected", true);
+  if (headers.has("set-cookie")) def("headers", headers);
   return response;
 }
 
@@ -45,6 +49,26 @@ function parseHeaders(raw: string): Headers {
     if (colon > 0) try { headers.append(line.slice(0, colon).trim(), line.slice(colon + 1).trim()); } catch {}
   }
   return headers;
+}
+
+/**
+ * Decide how to hand the request body to GM_xmlhttpRequest.
+ *
+ * Text bodies (string, URLSearchParams) are forwarded as-is so the server gets
+ * a normal text/JSON/form payload instead of a binary blob upload, which some
+ * endpoints reject. Everything else (Blob, ArrayBuffer, typed arrays, FormData)
+ * is buffered into a Blob and sent with `binary: true` to preserve bytes. The
+ * Content-Type computed by the Request constructor is already in the headers.
+ */
+async function readBody(
+  request: Request,
+  raw: BodyInit | null | undefined,
+): Promise<{ data: string | Blob | undefined; binary: boolean }> {
+  if (!request.body) return { data: undefined, binary: false };
+  if (typeof raw === "string") return { data: raw || undefined, binary: false };
+  if (raw instanceof URLSearchParams) return { data: String(raw) || undefined, binary: false };
+  const blob = await request.blob();
+  return { data: blob.size ? blob : undefined, binary: true };
 }
 
 async function gmFetchLite(input: RequestInfo | URL, init?: GmFetchLiteInit): Promise<Response> {
@@ -60,16 +84,19 @@ async function gmFetchLite(input: RequestInfo | URL, init?: GmFetchLiteInit): Pr
 
   if (signal.aborted) throw makeAbortError();
 
-  const requestBody = request.body ? await request.blob() : undefined;
-  if (requestBody && signal.aborted) throw makeAbortError();
+  const { data: requestBody, binary } = await readBody(request, init?.body);
+  if (request.body && signal.aborted) throw makeAbortError();
 
   const headers: Record<string, string> = fromEntries(request.headers as any);
   const rawHeaders = init?.headers as any;
   if (rawHeaders && !(rawHeaders instanceof Headers)) {
+    // Recover forbidden headers (Cookie, Host, Origin, ...) that the Request
+    // constructor strips. Only fill keys missing from request.headers so the
+    // already-combined value of repeated non-forbidden headers is preserved.
     if (typeof rawHeaders[Symbol.iterator] === "function")
-      for (const [k, v] of rawHeaders) headers[(k as string).toLowerCase()] = v;
+      for (const [k, v] of rawHeaders) headers[(k as string).toLowerCase()] ??= v;
     else
-      for (const k of Object.keys(rawHeaders)) headers[k.toLowerCase()] = rawHeaders[k];
+      for (const k of Object.keys(rawHeaders)) headers[k.toLowerCase()] ??= rawHeaders[k];
   }
 
   return new Promise<Response>((resolve, reject) => {
@@ -89,8 +116,8 @@ async function gmFetchLite(input: RequestInfo | URL, init?: GmFetchLiteInit): Pr
     try {
       ({ abort: abortGm } = gmXhr({
         method, url, headers, redirect,
-        data: requestBody?.size ? requestBody : undefined,
-        binary: true,
+        data: requestBody,
+        binary,
         anonymous: credentials === "omit",
         responseType: "blob" as any,
 
@@ -99,13 +126,13 @@ async function gmFetchLite(input: RequestInfo | URL, init?: GmFetchLiteInit): Pr
           settled = true;
           signal.removeEventListener(ABORT_EVT, onSignalAbort);
           const { responseHeaders, status, statusText, finalUrl, response: body } = ev;
-          if (!status) { reject(new TypeErr(FETCH_ERR)); return; }
+          if (!status) { reject(netErr(ev)); return; }
 
           const h = parseHeaders(responseHeaders);
           resolve(stamp(new Response(body as Blob, { headers: h, status, statusText }), url, finalUrl, h));
         },
 
-        onerror({ statusText: st, error: err }: any) { fail(new TypeErr(st || err || FETCH_ERR)); },
+        onerror(ev: any) { fail(netErr(ev)); },
         ontimeout() { fail(new DOMEx("Timed out", "TimeoutError")); },
         onabort() { fail(makeAbortError()); },
       }));
