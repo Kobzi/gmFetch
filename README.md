@@ -178,6 +178,8 @@ await gmFetch("https://api.example.com/items", {
 
 Empty bodies are omitted entirely (no empty Blob or empty string is dispatched). Applies to all three variants.
 
+> **Firefox note:** body detection is based on the original `init.body`, not on `Request.body`. Some userscript engines (notably Firefox) expose `Request.body` as `null` even when a body was supplied; relying on it would silently drop POST payloads. Fixed in 1.3.1.
+
 ---
 
 ## Headers
@@ -545,6 +547,13 @@ gmFetch runs through the userscript manager's privileged networking layer. This 
 - Requests bypass page-level CSP and fetch restrictions
 
 Users are responsible for respecting website policies, privacy, and applicable laws.
+
+---
+
+## Changelog
+
+### 1.3.1
+- **Fix (full + lite):** POST bodies were silently dropped in Firefox userscript engines because body presence was detected via `Request.body` (which Firefox exposes as `null` even when a body is supplied). Detection now uses the original `init.body`. Endpoints that returned `HTTP 400` on bodyless POSTs work again.
 
 ---
 
