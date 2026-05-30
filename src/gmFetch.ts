@@ -101,9 +101,13 @@ async function readBody(
   request: Request,
   raw: BodyInit | null | undefined,
 ): Promise<{ data: string | Blob | undefined; binary: boolean }> {
-  if (!request.body) return { data: undefined, binary: false };
+  // Text bodies: forward the original init.body directly. We must not gate this on
+  // `request.body`, because some engines (Firefox userscript sandbox) expose
+  // `Request.body` as null even when a body was provided — which would silently
+  // drop the payload.
   if (typeof raw === "string") return { data: raw || undefined, binary: false };
   if (raw instanceof URLSearchParams) return { data: String(raw) || undefined, binary: false };
+  if (raw == null && !request.body) return { data: undefined, binary: false };
   const blob = await request.blob();
   return { data: blob.size ? blob : undefined, binary: true };
 }
